@@ -32,7 +32,7 @@ public class Account {
 
     @Column(
         name = "overdraft_limit",
-        nullable = false,
+        nullable = true,
         precision = 19,
         scale = 2
     )
