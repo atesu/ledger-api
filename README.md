@@ -1,189 +1,141 @@
-Ledger API
+# Ledger API
 
-A RESTful ledger API built with Java and Spring Boot. The application supports account creation, account balance retrieval, transfers between accounts, idempotency, and transaction event publishing through RabbitMQ.
+A Spring Boot double-entry ledger service backed by MySQL, with REST endpoints for accounts, transactions, and reversals, and RabbitMQ integration for payment-settlement messages and transaction events.
 
-Technologies
+## Technology stack
 
-Java 23
+- Java 23 and Spring Boot 4.1.2
+- Spring Data JPA / Hibernate
+- MySQL and Flyway migrations
+- RabbitMQ / Spring AMQP
+- Maven Wrapper, JUnit, and Docker
 
-Spring Boot
 
-Spring Data JPA and Hibernate
+## REST API
 
-MySQL
+Base URL when using the current Docker port mapping: `http://localhost:8081`.
 
-Flyway
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/accounts` | Create an account |
+| `GET` | `/api/v1/accounts/{id}` | Retrieve an account and its balance |
+| `POST` | `/api/v1/transactions` | Post a balanced double-entry transaction |
+| `GET` | `/api/v1/transactions/{transactionId}` | Retrieve a transaction |
+| `POST` | `/api/v1/transactions/{transactionId}/reversals` | Reverse an original transaction |
 
-RabbitMQ
+### Create an account
 
-Docker and Docker Compose
-
-Maven
-
-JUnit and Mockito
-
-Features
-
-Create accounts with a specified currency and overdraft limit.
-
-Retrieve account details and current balance.
-
-Transfer funds between accounts of the same currency.
-
-Validate transfer amounts and currency precision.
-
-Enforce overdraft limits.
-
-Use idempotency keys to prevent duplicate transfers.
-
-Record transfers using debit and credit ledger entries.
-
-Publish transaction events to RabbitMQ.
-
-Run the application and RabbitMQ using Docker Compose.
-
-Requirements
-
-Docker Desktop
-
-Java 23 and Maven Wrapper for running tests locally
-
-Run with Docker Compose
-
-Build the application JAR:
-
-./mvnw clean package -DskipTests
-
-On Windows Command Prompt, use:
-
-mvnw.cmd clean package -DskipTests
-
-Build and start the containers:
-
-docker compose up --build -d
-
-Check container status:
-
-docker compose ps
-
-The API is available at http://localhost:8081.
-
-RabbitMQ Management UI is available at http://localhost:15672.
-
-Default local RabbitMQ credentials:
-
-Username: guest
-
-Password: guest
-
-Database Configuration
-
-The Docker Compose configuration connects the API to a MySQL database running on the host.
-
-Default database settings:
-
-Database: ledger
-
-Username: ledger
-
-Password: ledger
-
-The API uses the following environment variables:
-
-DB_URL
-
-DB_USERNAME
-
-DB_PASSWORD
-
-RABBITMQ_HOST
-
-SPRING_RABBITMQ_PORT
-
-Ensure MySQL is running and the database exists before starting the API.
-
-API Endpoints
-
-Create an account
-
+```http
 POST /api/v1/accounts
-
-Example request:
+Content-Type: application/json
 
 {
   "currency": "EUR",
-  "overdraftLimit": 10.00
+  "overdraftLimit": 100.00
 }
+```
 
-Example response:
+### Retrieve an account
 
-{
-  "id": "9515ac5b-9947-4bfa-81ab-350bc38fda64",
-  "currency": "EUR",
-  "overdraftLimit": 10.00,
-  "balance": 0
-}
-
-Supported currencies depend on the AccountCurrency enum.
-
-Get account details
-
+```http
 GET /api/v1/accounts/{id}
+```
 
-Returns account details, including the current balance.
+### Transaction and reversal behavior
 
-Transfer funds
+A transaction request contains at least two entries, each with an account ID, a direction (`DEBIT` or `CREDIT`), and a positive amount. The transaction must balance before any account balances are changed.
 
-POST /api/v1/transactions
+```http
+GET /api/v1/transactions/{transactionId}
+POST /api/v1/transactions/{transactionId}/reversals
+```
 
-Example request:
+The reversal endpoint creates a new transaction with the directions inverted and links it to the original transaction. Repeating a reversal is rejected.
 
+> Consult the request DTOs in `src/main/java/com/ledger/ledger_api/transaction/` for the exact transaction POST JSON schema; do not assume an undocumented field name.
+
+## RabbitMQ integration
+
+RabbitMQ is used for incoming payment-settlement messages and outgoing transaction notifications.
+
+### Incoming payment-settlement queue
+
+- Main queue: `ledger.payment.settled`
+- Dead-letter queue: `ledger.payment.settled.dlq`
+- RabbitMQ Management UI: `http://localhost:15672` (local development credentials: `guest` / `guest`)
+
+Example message:
+
+```json
 {
-  "sourceAccountId": "9515ac5b-9947-4bfa-81ab-350bc38fda64",
-  "destinationAccountId": "458f039c-202e-4a14-9a7c-2138a90e86b0",
+  "eventId": "e1a3a35e-7a22-46e4-98ab-2a2a9b6c3d31",
+  "paymentId": "e1a3a35e-7a22-46e4-98ab-2a2a9b6c3d32",
+  "merchantAccountId": "210e6cf1-423a-42cf-a7a3-01274fc70a3d",
   "amount": 1.00,
-  "idempotencyKey": "b7c2e9a1-5d43-4f86-8a21-3c6e0d9f7254"
+  "currency": "EUR"
 }
+```
 
-The idempotency key must be a valid UUID. Reusing a key with the same request returns the existing transaction; reusing it with different request data is rejected.
 
-A successful transfer returns the transaction ID.
+## Local build and tests
 
-RabbitMQ Events
+From Windows Command Prompt in the project directory:
 
-Successful transfers publish JSON events to the durable queue:
+```cmd
+cd /d D:\projects\ledger-api
+.\mvnw.cmd test
+```
 
-ledger.transaction.events
+The last confirmed Maven run reported **7 tests, 0 failures, 0 errors** before the subsequent revert. Run the command again on the final submitted revision and update this statement with the actual result.
 
-Each event contains:
+## Docker and infrastructure
 
-transactionId
+The current development setup exposes the API at `http://localhost:8081` and RabbitMQ Management at `http://localhost:15672`.
 
-sourceAccountId
+```cmd
+docker compose up -d --build
+```
 
-destinationAccountId
+The application container uses a Java 23 runtime. In the observed setup, MySQL runs outside the Compose stack and is reached from the application container through `host.docker.internal:3306`; RabbitMQ is reached through the Compose service name `rabbitmq`. Ensure the MySQL database and credentials match the application configuration before starting.
 
-amount
+Flyway manages the database schema. The previously verified application startup validated the existing migrations and connected to both MySQL and RabbitMQ.
 
-currency
+## Verification performed
 
-createdAt
+| Scenario | Observed result |
+|---|---|
+| Maven unit tests | **Passed** — 7 tests, 0 failures/errors on the last confirmed run before revert |
+| Create EUR account | **Passed** — REST account creation verified |
+| Read account | **Passed** — account API exercised |
+| Post balanced EUR transaction | **Passed** — transaction created and retrievable |
+| Retry with same transaction idempotency key | **Passed** — returned the same transaction ID |
+| Reverse a transaction | **Passed** — separate transaction created with inverted entries |
+| Attempt a second reversal | **Passed** — rejected with `Transaction has already been reversed` |
+| Application startup with MySQL/Flyway | **Passed** — connection and migration validation observed |
+| RabbitMQ connection and consumer startup | **Passed** — broker connection established and payment queue had an active consumer |
+| Dead-letter queue visibility | **Observed** — rejected messages were visible in `ledger.payment.settled.dlq` |
+| Valid EUR payment settlement end to end | **Not yet passed** — processing reached ledger logic but settlement debit was rejected by overdraft validation |
+| Final revision after revert | **Not yet reverified** — rerun tests and manual checks |
 
-The queue can be inspected through the RabbitMQ Management UI.
 
-Run Tests
+## Architecture and reliability notes
 
-On Windows:
+- The relational database is the source of truth for account balances and ledger entries.
+- Database transactions provide atomicity for a ledger posting.
+- Pessimistic row locks, acquired in a consistent account-ID order, protect concurrent updates across service instances sharing the same database.
+- Transaction idempotency and payment-ID deduplication serve different purposes: the former protects REST retries, while the latter protects broker redelivery and duplicate payment events.
+- Failed payment processing should not mark a payment as successfully processed.
+- RabbitMQ delivery is asynchronous and can be repeated; consumers must remain idempotent.
 
-mvnw.cmd clean test
+## Improvements
 
-On Linux or macOS:
+1. Complete and test the settlement-account policy and automatic account initialization.
+2. Add Testcontainers-based MySQL and RabbitMQ integration tests, including concurrent writers and invalid-message flows.
+3. Use a transactional outbox for durable, retryable transaction-event publishing.
+4. Add structured tracing and correlation IDs (`eventId`, `paymentId`, transaction ID).
+5. Add ledger-entry pagination, running balances, and historical balance queries.
+6. Provide a single verified script that builds, starts infrastructure, and runs integration tests.
 
-./mvnw clean test
+## AI assistance disclosure
 
-Stop the Containers
-
-docker compose down
-
-This stops and removes the Compose containers. It does not automatically remove the MySQL database running on the host.
-
+AI assistance was used for implementation guidance, debugging, test planning, and documentation drafting. Generated suggestions require review and validation against the actual source code and executed tests; the verification table distinguishes observed behavior from unfinished work.
