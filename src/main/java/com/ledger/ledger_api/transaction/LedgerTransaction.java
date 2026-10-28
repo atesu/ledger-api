@@ -2,6 +2,8 @@ package com.ledger.ledger_api.transaction;
 
 
 import jakarta.persistence.*;
+
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +30,21 @@ public class LedgerTransaction {
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
+    
+    @Column(name = "idempotency_key", unique = true, length = 36)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    private UUID idempotencyKey;
+    
+    @Column(name = "source_account_id", length = 36)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    private UUID sourceAccountId;
+
+    @Column(name = "destination_account_id", length = 36)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    private UUID destinationAccountId;
+
+    @Column(name = "request_amount", precision = 19, scale = 2)
+    private BigDecimal requestAmount;
 
     @OneToMany(mappedBy = "transaction", cascade = CascadeType.ALL)
     private List<LedgerEntry> entries = new ArrayList<>();
@@ -48,7 +65,24 @@ public class LedgerTransaction {
         this.reverses = reverses;
         this.createdAt = Instant.now();
     }
-
+    public LedgerTransaction(String description, UUID idempotencyKey) {
+        this.description = description;
+        this.idempotencyKey = idempotencyKey;
+        this.createdAt = Instant.now();
+    }
+    public LedgerTransaction(
+            String description,
+            UUID idempotencyKey,
+            UUID sourceAccountId,
+            UUID destinationAccountId,
+            BigDecimal requestAmount) {
+        this.description = description;
+        this.idempotencyKey = idempotencyKey;
+        this.sourceAccountId = sourceAccountId;
+        this.destinationAccountId = destinationAccountId;
+        this.requestAmount = requestAmount;
+        this.createdAt = Instant.now();
+    }
     public UUID getId() {
         return id;
     }
@@ -56,11 +90,24 @@ public class LedgerTransaction {
     public Instant getCreatedAt() {
         return createdAt;
     }
-
+    public UUID getIdempotencyKey() {
+        return idempotencyKey;
+    }
     public List<LedgerEntry> getEntries() {
         return entries;
     }
     public LedgerTransaction getReverses() {
         return reverses;
+    }
+    public UUID getSourceAccountId() {
+        return sourceAccountId;
+    }
+
+    public UUID getDestinationAccountId() {
+        return destinationAccountId;
+    }
+
+    public BigDecimal getRequestAmount() {
+        return requestAmount;
     }
 }

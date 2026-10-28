@@ -4,6 +4,7 @@ import java.util.UUID;
 
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -33,5 +34,11 @@ public class TransactionController {
         UUID reversalId = transactionService.reverse(transactionId);
 
         return Map.of("transactionId", reversalId);
+    }
+    @GetMapping("/{transactionId}")
+    public ResponseEntity<TransactionResponse> getTransaction(
+            @PathVariable UUID transactionId) {
+        return ResponseEntity.ok(
+                transactionService.getTransaction(transactionId));
     }
 }

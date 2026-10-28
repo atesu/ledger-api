@@ -2,6 +2,7 @@ package com.ledger.ledger_api.transaction;
 
 
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.ledger.ledger_api.account.Account;
 import jakarta.persistence.*;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -21,6 +22,7 @@ public class LedgerEntry {
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JsonIgnore
     @JoinColumn(name = "transaction_id", nullable = false)
     private LedgerTransaction transaction;
 

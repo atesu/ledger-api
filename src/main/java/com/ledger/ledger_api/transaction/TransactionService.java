@@ -6,8 +6,9 @@ import com.ledger.ledger_api.account.AccountRepository;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import org.springframework.dao.DataIntegrityViolationException;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -28,6 +29,25 @@ public class TransactionService {
         UUID sourceId = request.sourceAccountId();
         UUID destinationId = request.destinationAccountId();
         BigDecimal amount = request.amount();
+        UUID idempotencyKey = request.idempotencyKey();
+        
+        LedgerTransaction existing =
+        	    transactionRepository.findByIdempotencyKey(idempotencyKey)
+        	        .orElse(null);
+
+        	if (existing != null) {
+        	    boolean sameRequest =
+        	        sourceId.equals(existing.getSourceAccountId())
+        	        && destinationId.equals(existing.getDestinationAccountId())
+        	        && amount.compareTo(existing.getRequestAmount()) == 0;
+
+        	    if (sameRequest) {
+        	        return existing.getId();
+        	    }
+
+        	    throw new IllegalArgumentException(
+        	        "Idempotency key has already been used for a different request");
+        	}
 
         if (sourceId.equals(destinationId)) {
             throw new IllegalArgumentException(
@@ -61,9 +81,8 @@ public class TransactionService {
 
         int scale = source.getCurrency().getScale();
 
-        if (amount.scale() > scale) {
-            throw new IllegalArgumentException(
-                    "Invalid decimal precision for currency");
+        if (amount.stripTrailingZeros().scale() > scale) {
+            throw new IllegalArgumentException("Invalid decimal precision for currency");
         }
 
         BigDecimal newBalance = source.getBalance().subtract(amount);
@@ -78,8 +97,13 @@ public class TransactionService {
         source.debit(amount);
         destination.credit(amount);
 
-        LedgerTransaction transaction =
-                new LedgerTransaction("Account transfer");
+        LedgerTransaction transaction = new LedgerTransaction(
+        	    "Account transfer",
+        	    idempotencyKey,
+        	    sourceId,
+        	    destinationId,
+        	    amount
+        	);
 
         transaction.getEntries().add(
                 new LedgerEntry(
@@ -224,5 +248,37 @@ public UUID reverse(UUID transactionId) {
 
     return saved.getId();
 }
+@Transactional(readOnly = true)
+public TransactionResponse getTransaction(UUID transactionId) {
+    LedgerTransaction transaction = transactionRepository
+            .findWithEntriesById(transactionId)
+            .orElseThrow(() -> new IllegalArgumentException(
+                    "Transaction not found: " + transactionId));
 
+    List<TransactionResponse.EntryResponse> entries =
+            transaction.getEntries().stream()
+                    .map(entry -> new TransactionResponse.EntryResponse(
+                            entry.getId(),
+                            entry.getAccount().getId(),
+                            entry.getDirection().name(),
+                            entry.getAmount()
+                    ))
+                    .toList();
+
+    UUID reversesTransactionId = transaction.getReverses() == null
+            ? null
+            : transaction.getReverses().getId();
+
+    return new TransactionResponse(
+            transaction.getId(),
+            transaction.getDescription(),
+            transaction.getCreatedAt(),
+            transaction.getIdempotencyKey(),
+            transaction.getSourceAccountId(),
+            transaction.getDestinationAccountId(),
+            transaction.getRequestAmount(),
+            reversesTransactionId,
+            entries
+    );
+}
 }

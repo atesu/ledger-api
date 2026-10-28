@@ -17,7 +17,9 @@ public record CreateTransactionRequest(
 
         @NotNull
         @DecimalMin("0.01")
-        BigDecimal amount
+        BigDecimal amount,
+        
+        @NotNull UUID idempotencyKey
 
 ) {
 }
