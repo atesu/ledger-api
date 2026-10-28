@@ -25,4 +25,13 @@ public class TransactionController {
 
         return Map.of("transactionId", transactionId);
     }
+    @PostMapping("/{transactionId}/reversals")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Map<String, UUID> reverseTransaction(
+            @PathVariable UUID transactionId) {
+
+        UUID reversalId = transactionService.reverse(transactionId);
+
+        return Map.of("transactionId", reversalId);
+    }
 }

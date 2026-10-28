@@ -21,6 +21,10 @@ public class LedgerTransaction {
     
     @Column(nullable = false, length = 255)
     private String description;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reverses_transaction_id", unique = true)
+    private LedgerTransaction reverses;
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
@@ -39,6 +43,11 @@ public class LedgerTransaction {
         this.description = description;
         this.createdAt = Instant.now();
     }
+    public LedgerTransaction(String description, LedgerTransaction reverses) {
+        this.description = description;
+        this.reverses = reverses;
+        this.createdAt = Instant.now();
+    }
 
     public UUID getId() {
         return id;
@@ -50,5 +59,8 @@ public class LedgerTransaction {
 
     public List<LedgerEntry> getEntries() {
         return entries;
+    }
+    public LedgerTransaction getReverses() {
+        return reverses;
     }
 }

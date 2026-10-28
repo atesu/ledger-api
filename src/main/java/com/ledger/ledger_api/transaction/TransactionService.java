@@ -93,4 +93,136 @@ public class TransactionService {
 
         return saved.getId();
     }
+
+@Transactional
+public UUID reverse(UUID transactionId) {
+    // 1. Find the original transaction.
+    LedgerTransaction original = transactionRepository.findById(transactionId)
+        .orElseThrow(() -> new IllegalArgumentException(
+            "Transaction not found: " + transactionId));
+
+    // 2. A reversal cannot itself be reversed.
+    if (original.getReverses() != null) {
+        throw new IllegalArgumentException(
+            "A reversal transaction cannot be reversed");
+    }
+
+    // 3. Prevent a second reversal.
+    if (transactionRepository.existsByReverses(original)) {
+        throw new IllegalArgumentException(
+            "Transaction has already been reversed");
+    }
+
+    // 4. Get the original entries and account IDs.
+    java.util.List<LedgerEntry> entries = original.getEntries();
+
+    if (entries.size() < 2) {
+        throw new IllegalArgumentException(
+            "Transaction must contain at least two entries");
+    }
+
+    java.util.List<UUID> accountIds = entries.stream()
+        .map(entry -> entry.getAccount().getId())
+        .distinct()
+        .sorted()
+        .toList();
+
+    // 5. Lock accounts in a consistent order.
+    java.util.Map<UUID, Account> lockedAccounts =
+        new java.util.HashMap<>();
+
+    for (UUID accountId : accountIds) {
+        Account account = accountRepository.findByIdForUpdate(accountId)
+            .orElseThrow(() -> new IllegalArgumentException(
+                "Account not found: " + accountId));
+
+        lockedAccounts.put(accountId, account);
+    }
+
+    // 6. Calculate the resulting balances without changing accounts.
+    java.util.Map<UUID, BigDecimal> resultingBalances =
+        new java.util.HashMap<>();
+
+    for (UUID accountId : accountIds) {
+        resultingBalances.put(
+            accountId,
+            lockedAccounts.get(accountId).getBalance());
+    }
+
+    for (LedgerEntry entry : entries) {
+        if (entry.getDirection() == null) {
+            throw new IllegalArgumentException(
+                "Cannot reverse a transaction with missing entry direction");
+        }
+
+        UUID accountId = entry.getAccount().getId();
+        BigDecimal currentBalance = resultingBalances.get(accountId);
+        BigDecimal amount = entry.getAmount();
+
+        BigDecimal newBalance;
+
+        if (entry.getDirection() == EntryDirection.DEBIT) {
+            // Reversal of a debit credits the account.
+            newBalance = currentBalance.add(amount);
+        } else {
+            // Reversal of a credit debits the account.
+            newBalance = currentBalance.subtract(amount);
+        }
+
+        resultingBalances.put(accountId, newBalance);
+    }
+
+    // 7. Validate overdraft limits before changing any balance.
+    for (UUID accountId : accountIds) {
+        Account account = lockedAccounts.get(accountId);
+        BigDecimal newBalance = resultingBalances.get(accountId);
+        BigDecimal overdraftLimit = account.getOverdraftLimit();
+
+        if (overdraftLimit != null
+                && newBalance.compareTo(overdraftLimit.negate()) < 0) {
+            throw new IllegalArgumentException(
+                "Reversal would exceed overdraft limit for account: "
+                    + accountId);
+        }
+    }
+
+    // 8. Apply the validated balance changes.
+    for (UUID accountId : accountIds) {
+        Account account = lockedAccounts.get(accountId);
+
+        BigDecimal difference = resultingBalances.get(accountId)
+            .subtract(account.getBalance());
+
+        if (difference.signum() > 0) {
+            account.credit(difference);
+        } else if (difference.signum() < 0) {
+            account.debit(difference.negate());
+        }
+    }
+
+    // 9. Create a new transaction with opposite entries.
+    LedgerTransaction reversal = new LedgerTransaction(
+        "Reversal of transaction " + transactionId,
+        original);
+
+    for (LedgerEntry entry : entries) {
+        EntryDirection oppositeDirection =
+            entry.getDirection() == EntryDirection.DEBIT
+                ? EntryDirection.CREDIT
+                : EntryDirection.DEBIT;
+
+        reversal.getEntries().add(
+            new LedgerEntry(
+                reversal,
+                lockedAccounts.get(entry.getAccount().getId()),
+                oppositeDirection,
+                entry.getAmount()));
+    }
+
+    // 10. Save the reversal in the same database transaction.
+    LedgerTransaction saved = transactionRepository.save(reversal);
+
+    return saved.getId();
+}
+
 }
