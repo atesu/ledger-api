@@ -11,17 +11,23 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
+import com.ledger.ledger_api.messaging.TransactionEvent;
+import com.ledger.ledger_api.messaging.TransactionEventPublisher;
 @Service
 public class TransactionService {
 
     private final AccountRepository accountRepository;
     private final LedgerTransactionRepository transactionRepository;
-
+    private final TransactionEventPublisher eventPublisher;
+    
     public TransactionService(
             AccountRepository accountRepository,
-            LedgerTransactionRepository transactionRepository) {
+            LedgerTransactionRepository transactionRepository,
+            TransactionEventPublisher eventPublisher) {
+
         this.accountRepository = accountRepository;
         this.transactionRepository = transactionRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -114,6 +120,17 @@ public class TransactionService {
                         transaction, destination, EntryDirection.CREDIT, amount));
 
         LedgerTransaction saved = transactionRepository.save(transaction);
+
+        TransactionEvent event = new TransactionEvent(
+                saved.getId(),
+                source.getId(),
+                destination.getId(),
+                amount,
+                source.getCurrency().name(),
+                saved.getCreatedAt()
+        );
+
+        eventPublisher.publish(event);
 
         return saved.getId();
     }

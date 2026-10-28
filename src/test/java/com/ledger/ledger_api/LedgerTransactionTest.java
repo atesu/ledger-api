@@ -1,6 +1,6 @@
 package com.ledger.ledger_api;
 
-
+import com.ledger.ledger_api.messaging.TransactionEventPublisher;
 import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -38,7 +38,8 @@ class LedgerTransactionTest {
 
 	@InjectMocks
 	private TransactionService transactionService;
-
+	@Mock
+	private TransactionEventPublisher eventPublisher;
     @Test
     void transactionShouldContainBalancedDebitAndCreditEntries() {
     	Account source = new Account(
