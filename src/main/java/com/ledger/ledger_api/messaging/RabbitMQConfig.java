@@ -38,12 +38,5 @@ public class RabbitMQConfig {
         admin.setAutoStartup(true);
         return admin;
     }
-    @Bean
-    public org.springframework.boot.ApplicationRunner testRabbitConnection(
-            ConnectionFactory connectionFactory) {
-        return args -> {
-            System.out.println("RabbitMQ connection test: "
-                    + connectionFactory.createConnection().isOpen());
-        };
-    }
+
 }
